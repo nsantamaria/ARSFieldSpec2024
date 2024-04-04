@@ -1,0 +1,500 @@
+---
+title: "Untitled"
+author: "Nikolas Santamaria"
+date: "2024-04-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+
+list.of.packages <- c("pls","dplyr","reshape2","here","plotrix","ggplot2","gridExtra")
+invisible(lapply(list.of.packages, library, character.only = TRUE))
+
+df <- read.csv('/Users/niks/Desktop/USDA/Spring 2024/Data/2023 NxIrr_hyperspectral_txt/8-8-2023.csv')
+df2 <- read.csv('/Users/niks/Desktop/USDA/Spring 2024/Data/2023 NxIrr_hyperspectral_txt/8-24-2023.csv')
+
+
+
+data_2023 <- list(
+ "08/08/2023" = df,
+ "08/24/2023" = df2
+)
+
+
+
+plot_numbers <- list(
+  '4114' = 1, '1111' = 2, '5115' = 3, '3113' = 4, '2112' = 5,
+  '6116' = 6, '3123' = 7, '1121' = 8, '6126' = 9, '5125' = 10,
+  '4124' = 11, '2122' = 12, '6226' = 13, '1221' = 14, '5225' = 15,
+  '4224' = 16, '3223' = 17, '2222' = 18, '4214' = 19, '5215' = 20,
+  '3213' = 21, '6216' = 22, '1211' = 23, '2212' = 24, '3323' = 25,
+  '6326' = 26, '4324' = 27, '5325' = 28, '2322' = 29, '1321' = 30,
+  '4314' = 31, '1311' = 32, '2312' = 33, '3313' = 34, '6316' = 35,
+  '5315' = 36
+)
+
+```
+
+
+```{r}
+
+
+for (key in names(data_2023)) {
+  value <- data_2023[[key]] # Access the value by key
+  value <- value %>% rename(Wavelength = X) %>%
+  mutate(Wavelength = as.integer(Wavelength)) # Convert 'Wavelength' to integer
+
+  #convert wavelength column to int
+  data_2023[[key]] <- value
+}
+
+
+```
+
+
+
+```{r pressure, echo=FALSE}
+# Define the treatment_100 vector
+irrigation_100 = c(1:6, 19:22, 31:36)
+
+# Define the full sequence
+full_seq = 1:36
+
+# Find elements in full_seq not in treatment_100
+irrigation_70 = full_seq[!full_seq %in% irrigation_100]
+
+```
+
+
+
+
+
+
+
+Function to sort based on first row and convert to long
+
+
+```{r}
+
+leaf_sorter_long <- function(df, date){
+  # Identify columns for top_leaf and middle_leaf based on first row
+  # Assuming 'df' is your dataframe in R and the first column is 'Wavelength'
+  
+  # First column name (presumed 'Wavelength' here)
+  wavelength_column <- names(df)[1]
+  # Initialize vectors to hold column names for each category
+  top_leaf_columns <- c(wavelength_column)  # Include 'Wavelength' column
+  middle_leaf_columns <- c(wavelength_column)  # Include 'Wavelength' column
+  
+  # Iterate over the column names, starting from the second column
+  for (col in names(df)[-1]) {  # Exclude the first column during iteration
+      if (grepl("TL", df[1, col])) {
+          # If "TL" is found in the first row of this column, add to top_leaf_columns
+          top_leaf_columns <- c(top_leaf_columns, col)
+      } else if (grepl("ML", df[1, col])) {
+          # If "ML" is found, add to middle_leaf_columns
+          middle_leaf_columns <- c(middle_leaf_columns, col)
+      }
+  }
+  
+  # Subset the original dataframe to create top_leaf and middle_leaf dataframes
+  top_leaf <- df[, top_leaf_columns]
+  middle_leaf <- df[, middle_leaf_columns]
+  
+  # Optionally, remove the first row from both dataframes as it's used for categorization
+  top_leaf <- top_leaf[-1, ]
+  middle_leaf <- middle_leaf[-1, ]
+  
+  
+
+  
+  top_long <- pivot_longer(top_leaf, cols = -Wavelength, names_to = "Measurement", values_to = "Value")
+  top_long['Leaf_Location'] <- "Top"
+  middle_long <- pivot_longer(middle_leaf, cols = -Wavelength, names_to = "Measurement", values_to = "Value")
+  middle_long['Leaf_Location'] <- "Middle"
+  
+  top_middle_long <- rbind(top_long, middle_long)
+  top_middle_long$Date <- date
+
+  top_middle_long
+}
+
+
+
+```
+
+
+
+```{r}
+library(dplyr)
+library(purrr)
+
+#running for each day
+
+df_long <- data_2023 %>% 
+  map2(names(.), ~leaf_sorter_long(.x, .y)) %>%
+  bind_rows()
+
+```
+
+
+```{r}
+
+add_plot_number <- function(df, plot_numbers) {
+  # Assuming df_long should be df as per the function argument
+  df <- df %>%
+    mutate(
+      Plot = sapply(Measurement, function(x) {
+        key <- substr(x, 2, 5)  # Extract the key from the Measurement
+        if (key %in% names(plot_numbers)) {
+          return(plot_numbers[[key]])  # Return the corresponding plot number
+        } else {
+          return(NA)  # Return NA if the key is not found
+        }
+      }),
+      Treatment = sapply(Measurement, function(x) {
+        key <- substr(x, 2, 5)  # Reuse the extracted key from Measurement
+        if(key %in% names(plot_numbers)) {
+          # Extract and return the first digit of the key
+          return(substr(key, 1, 1))
+        } else {
+          return(NA)  # Return NA if the key is not found
+        }
+      })
+    )
+  
+  df
+}
+
+df_long <- add_plot_number(df_long, plot_numbers)
+```
+
+
+
+
+```{r}
+library(dplyr)
+
+# Assuming df_long is your dataframe
+
+# Define plots with 100% irrigation treatment
+irrigation_100 <- c(1:6, 19:22, 31:36)
+
+# Define the full sequence of plot numbers
+full_seq <- 1:36
+
+# Define plots with 70% irrigation treatment by excluding those in irrigation_100 from full_seq
+irrigation_70 <- full_seq[!full_seq %in% irrigation_100]
+
+# Assuming your dataframe df_long has a column named Plot
+df_long <- df_long %>%
+  mutate(Irrigation = ifelse(Plot %in% irrigation_100, "100%", 
+                             ifelse(Plot %in% irrigation_70, "70%", NA)))
+
+```
+
+
+```{r}
+
+biomass_csv <- read.csv('/Users/niks/Desktop/USDA/Spring 2024/Data/2023_biomass.csv')
+biomass <- biomass_csv[,c("Date", "Plot", "Carbon.per.Plant..g.", "Nitrogen.per.Plant..g.")]
+```
+
+
+```{r}
+
+biomass$Date <- as.Date(biomass$Date, format="%m/%d/%y")
+df_long$Date <- as.Date(df_long$Date, format="%m/%d/%Y")
+biomass <- biomass %>% rename(
+  Carbon ="Carbon.per.Plant..g.", 
+  Nitrogen = "Nitrogen.per.Plant..g."
+)
+biomass <- biomass %>%
+  mutate(Date = if_else(Date == as.Date("2023-08-09"), as.Date("2023-08-08"), Date)) %>%
+  mutate(Date = if_else(Date == as.Date("2023-09-27"), as.Date("2023-08-24"), Date))
+
+
+df_long <- df_long %>%
+  left_join(biomass, by = c("Plot", "Date"))
+
+
+```
+
+```{r}
+
+### Chosing the combinations of groupings to perform PLS
+
+# Define unique combinations of Day, Irrigation, Treatment
+#This is for daily Irrigation/Treatment combos
+
+
+```{r}
+df_wide <- df_long %>% 
+  pivot_wider(names_from = Wavelength, values_from = Value)
+
+```
+
+```{r}
+`%notin%` <- Negate(`%in%`)
+
+
+Start.wave <- 500
+End.wave <- 2400
+wv <- seq(Start.wave,End.wave,1)
+Spectra <- as.matrix(df_wide[,names(df_wide) %in% wv])
+colnames(Spectra) <- c(paste0("Wave_",wv))
+sample_info <- df_wide[,names(df_wide) %notin% seq(350,2500,1)]
+
+```
+
+
+```{r}
+#Create PLSR data
+plsr_data <- data.frame(sample_info, Spectra)
+
+```
+### Step 6: Data Already Cleaned
+
+### Step 7: Create Cal/Val datasets
+```{r}
+method <- "dplyr" #base/dplyr
+# base R - a bit slow
+# dplyr - much faster
+
+split_data <- spectratrait::create_data_split(dataset=plsr_data, approach=method, 
+                                              split_seed=7529075, prop=0.8, 
+                                              group_variables=c("Irrigation", "Treatment"))
+
+names(split_data)
+```
+
+```{r}
+cal.plsr.data <- split_data$cal_data
+val.plsr.data <- split_data$val_data
+
+
+rm(split_data)
+
+# Datasets:
+print(paste("Cal observations: ",dim(cal.plsr.data)[1],sep=""))
+print(paste("Val observations: ",dim(val.plsr.data)[1],sep=""))
+
+```
+
+```{r}
+
+
+inVar = "Nitrogen"
+
+make_cal_val_plots <- function(inVar){
+  text_loc <- c(max(hist(cal.plsr.data[,paste0(inVar)], plot=FALSE)$counts),
+                max(hist(cal.plsr.data[,paste0(inVar)], plot=FALSE)$mids))
+  cal_hist_plot <- qplot(cal.plsr.data[,paste0(inVar)],geom="histogram",
+                         main = paste0("Calibration Histogram for ",inVar),
+                         xlab = paste0(inVar),ylab = "Count",fill=I("grey50"),col=I("black"),
+                         alpha=I(.7)) + 
+    annotate("text", x=text_loc[2], y=text_loc[1], label= "1.",size=10)
+  val_hist_plot <- qplot(val.plsr.data[,paste0(inVar)],geom="histogram",
+                         main = paste0("Validation Histogram for ",inVar),
+                         xlab = paste0(inVar),ylab = "Count",fill=I("grey50"),col=I("black"),
+                         alpha=I(.7))
+  histograms <- grid.arrange(cal_hist_plot, val_hist_plot, ncol=2)
+  
+  ggsave(filename = file.path(paste0(inVar,"_Cal_Val_Histograms.png")), 
+       plot = histograms, device="png", width = 30, height = 12, units = "cm", 
+       dpi = 300)
+# output cal/val data
+write.csv(cal.plsr.data,file=file.path(paste0(inVar,'_Cal_PLSR_Dataset.csv')),
+          row.names=FALSE)
+write.csv(val.plsr.data,file=file.path(paste0(inVar,'_Val_PLSR_Dataset.csv')),
+          row.names=FALSE)
+}
+
+make_cal_val_plots("Nitrogen")
+make_cal_val_plots("Carbon")
+
+```
+
+
+
+Step 8. Create calibration and validation PLSR datasets
+
+```{r}
+### Format PLSR data for model fitting 
+cal_spec <- as.matrix(cal.plsr.data[, which(names(cal.plsr.data) %in% 
+                                              paste0("Wave_",wv))])
+cal.plsr.data <- data.frame(cal.plsr.data[, which(names(cal.plsr.data) %notin% 
+                                                    paste0("Wave_",wv))], 
+                            Spectra=I(cal_spec))
+head(cal.plsr.data)[1:5]
+```
+
+
+```{r}
+
+val_spec <- as.matrix(val.plsr.data[, which(names(val.plsr.data) %in% 
+                                              paste0("Wave_",wv))])
+val.plsr.data <- data.frame(val.plsr.data[, which(names(val.plsr.data) %notin% 
+                                                    paste0("Wave_",wv))],
+                            Spectra=I(val_spec))
+head(val.plsr.data)[1:5]
+```
+```{r}
+cal.plsr.data$Spectra <- apply(cal.plsr.data$Spectra, 2, as.numeric)  # Convert each column to numeric
+val.plsr.data$Spectra <- apply(val.plsr.data$Spectra, 2, as.numeric)  # Convert each column to numeric
+
+
+
+par(mfrow=c(1,2)) # B, L, T, R
+spectratrait::f.plot.spec(Z=cal.plsr.data$Spectra,wv=wv,
+            plot_label="Calibration")
+text(550,95,labels = "2.",cex=3)
+spectratrait::f.plot.spec(Z=val.plsr.data$Spectra,wv=wv,
+            plot_label="Validation")
+```
+
+```{r}
+### Use permutation to determine the optimal number of components
+if(grepl("Windows", sessionInfo()$running)){
+  pls.options(parallel = NULL)
+} else {
+  pls.options(parallel = parallel::detectCores()-1)
+}
+
+method <- "firstMin" #pls, firstPlateau, firstMin
+random_seed <- 7529075
+seg <- 80
+maxComps <- 16
+iterations <- 50
+prop <- 0.70
+if (method=="pls") {
+  nComps <- spectratrait::find_optimal_components(dataset=cal.plsr.data, targetVariable=inVar,
+                                                  method=method, 
+                                                  maxComps=maxComps, seg=seg, 
+                                                  random_seed=random_seed)
+  print(paste0("*** Optimal number of components: ", nComps))
+} else {
+  nComps <- spectratrait::find_optimal_components(dataset=cal.plsr.data, targetVariable=inVar,
+                                                  method=method, 
+                                                  maxComps=maxComps, iterations=iterations, 
+                                                  seg=seg, prop=prop, 
+                                                  random_seed=random_seed)
+}
+
+```
+
+```{r}
+### Fit final model - using leave-one-out cross validation
+plsr.out <- plsr(as.formula(paste(inVar,"~","Spectra")),scale=FALSE,ncomp=nComps,
+                 validation="LOO",trace=FALSE,data=cal.plsr.data)
+fit <- plsr.out$fitted.values[,1,nComps]
+pls.options(parallel = NULL)
+
+# External validation fit stats
+text_loc <- c(max(RMSEP(plsr.out, newdata = val.plsr.data)$comps),
+              RMSEP(plsr.out, newdata = val.plsr.data)$val[1])
+par(mfrow=c(1,2)) # B, L, T, R
+pls::RMSEP(plsr.out, newdata = val.plsr.data)
+```
+
+```{r}
+plot(pls::RMSEP(plsr.out,estimate=c("test"),newdata = val.plsr.data), main="MODEL RMSEP",
+     xlab="Number of Components",ylab="Model Validation RMSEP",lty=1,col="black",cex=1.5,lwd=2)
+text(text_loc[1],text_loc[2],labels = "4.", cex=2)
+box(lwd=2.2)
+
+pls::R2(plsr.out, newdata = val.plsr.data)
+```
+
+```{r}
+plot(pls::R2(plsr.out,estimate=c("test"),newdata = val.plsr.data), main="MODEL R2",
+     xlab="Number of Components",ylab="Model Validation R2",lty=1,col="black",cex=1.5,lwd=2)
+box(lwd=2.2)
+```
+```{r}
+#calibration
+cal.plsr.output <- data.frame(cal.plsr.data[, which(names(cal.plsr.data) %notin% 
+                                                      "Spectra")],
+                              PLSR_Predicted=fit,
+                              PLSR_CV_Predicted=as.vector(plsr.out$validation$pred[,,
+                                                                                   nComps]))
+cal.plsr.output <- cal.plsr.output %>%
+  mutate(PLSR_CV_Residuals = PLSR_CV_Predicted-get(inVar))
+head(cal.plsr.output)
+```
+
+```{r}
+cal.R2 <- round(pls::R2(plsr.out,intercept=F)[[1]][nComps],2)
+cal.RMSEP <- round(sqrt(mean(cal.plsr.output$PLSR_CV_Residuals^2)),2)
+
+val.plsr.output <- data.frame(val.plsr.data[, which(names(val.plsr.data) %notin% 
+                                                      "Spectra")],
+                              PLSR_Predicted=as.vector(predict(plsr.out, 
+                                                               newdata = val.plsr.data, 
+                                                               ncomp=nComps, 
+                                                               type="response")[,,1]))
+val.plsr.output <- val.plsr.output %>%
+  mutate(PLSR_Residuals = PLSR_Predicted-get(inVar))
+head(val.plsr.output)
+```
+```{r}
+
+val.R2 <- round(pls::R2(plsr.out,newdata=val.plsr.data,intercept=F)[[1]][nComps],2)
+val.RMSEP <- round(sqrt(mean(val.plsr.output$PLSR_Residuals^2)),2)
+
+rng_quant <- quantile(cal.plsr.output[,inVar], probs = c(0.001, 0.999))
+cal_scatter_plot <- ggplot(cal.plsr.output, aes(x=PLSR_CV_Predicted, y=get(inVar))) + 
+  theme_bw() + geom_point() + geom_abline(intercept = 0, slope = 1, color="dark grey", 
+                                          linetype="dashed", size=1.5) + 
+  xlim(rng_quant[1], rng_quant[2]) + 
+  ylim(rng_quant[1], rng_quant[2]) +
+  labs(x=paste0("Predicted ", paste(inVar), " (units)"),
+       y=paste0("Observed ", paste(inVar), " (units)"),
+       title=paste0("Calibration: ", paste0("Rsq = ", cal.R2), "; ", 
+                    paste0("RMSEP = ", cal.RMSEP))) +
+  theme(axis.text=element_text(size=18), legend.position="none",
+        axis.title=element_text(size=20, face="bold"), 
+        axis.text.x = element_text(angle = 0,vjust = 0.5),
+        panel.border = element_rect(linetype = "solid", fill = NA, size=1.5)) + 
+  annotate("text", x=rng_quant[1], y=rng_quant[2], label= "5.",size=10)
+
+cal_resid_histogram <- ggplot(cal.plsr.output, aes(x=PLSR_CV_Residuals)) +
+  geom_histogram(alpha=.5, position="identity") + 
+  geom_vline(xintercept = 0, color="black", 
+             linetype="dashed", size=1) + theme_bw() + 
+  theme(axis.text=element_text(size=18), legend.position="none",
+        axis.title=element_text(size=20, face="bold"), 
+        axis.text.x = element_text(angle = 0,vjust = 0.5),
+        panel.border = element_rect(linetype = "solid", fill = NA, size=1.5))
+
+rng_quant <- quantile(val.plsr.output[,inVar], probs = c(0.001, 0.999))
+val_scatter_plot <- ggplot(val.plsr.output, aes(x=PLSR_Predicted, y=get(inVar))) + 
+  theme_bw() + geom_point() + geom_abline(intercept = 0, slope = 1, color="dark grey", 
+                                          linetype="dashed", size=1.5) + 
+  xlim(rng_quant[1], rng_quant[2]) + 
+  ylim(rng_quant[1], rng_quant[2]) +
+  labs(x=paste0("Predicted ", paste(inVar), " (units)"),
+       y=paste0("Observed ", paste(inVar), " (units)"),
+       title=paste0("Validation: ", paste0("Rsq = ", val.R2), "; ", 
+                    paste0("RMSEP = ", val.RMSEP))) +
+  theme(axis.text=element_text(size=18), legend.position="none",
+        axis.title=element_text(size=20, face="bold"), 
+        axis.text.x = element_text(angle = 0,vjust = 0.5),
+        panel.border = element_rect(linetype = "solid", fill = NA, size=1.5))
+
+val_resid_histogram <- ggplot(val.plsr.output, aes(x=PLSR_Residuals)) +
+  geom_histogram(alpha=.5, position="identity") + 
+  geom_vline(xintercept = 0, color="black", 
+             linetype="dashed", size=1) + theme_bw() + 
+  theme(axis.text=element_text(size=18), legend.position="none",
+        axis.title=element_text(size=20, face="bold"), 
+        axis.text.x = element_text(angle = 0,vjust = 0.5),
+        panel.border = element_rect(linetype = "solid", fill = NA, size=1.5))
+
+# plot cal/val side-by-side
+scatterplots <- grid.arrange(cal_scatter_plot, val_scatter_plot, cal_resid_histogram, 
+                             val_resid_histogram, nrow=2, ncol=2)
+
+```
